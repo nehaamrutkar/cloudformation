@@ -1,0 +1,463 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Resources: 
+  RootRole1: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "ec2.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+  RolePolicies: 
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "ec2codedeploypolicies1"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: "Allow"
+            Action: 
+              - "autoscaling:CompleteLifecycleAction"
+              - "autoscaling:DeleteLifecycleHook"
+              - "autoscaling:DescribeAutoScalingGroups"
+              - "autoscaling:DescribeLifecycleHooks"
+              - "autoscaling:PutLifecycleHook"
+              - "autoscaling:RecordLifecycleActionHeartbeat"
+              - "autoscaling:CreateAutoScalingGroup"
+              - "autoscaling:UpdateAutoScalingGroup"
+              - "autoscaling:EnableMetricsCollection"
+              - "autoscaling:DescribePolicies"
+              - "autoscaling:DescribeScheduledActions"
+              - "autoscaling:DescribeNotificationConfigurations"
+              - "autoscaling:SuspendProcesses"
+              - "autoscaling:ResumeProcesses"
+              - "autoscaling:AttachLoadBalancers"
+              - "autoscaling:AttachLoadBalancerTargetGroups"
+              - "autoscaling:PutScalingPolicy"
+              - "autoscaling:PutScheduledUpdateGroupAction"
+              - "autoscaling:PutNotificationConfiguration"
+              - "autoscaling:PutWarmPool"
+              - "autoscaling:DescribeScalingActivities"
+              - "autoscaling:DeleteAutoScalingGroup"
+              - "ec2:DescribeInstances"
+              - "ec2:DescribeInstanceStatus"
+              - "ec2:TerminateInstances"
+              - "tag:GetResources"
+              - "sns:Publish"
+              - "cloudwatch:DescribeAlarms"
+              - "cloudwatch:PutMetricAlarm"
+              - "elasticloadbalancing:DescribeLoadBalancers"
+              - "elasticloadbalancing:DescribeInstanceHealth"
+              - "elasticloadbalancing:RegisterInstancesWithLoadBalancer"
+              - "elasticloadbalancing:DeregisterInstancesFromLoadBalancer"
+              - "elasticloadbalancing:DescribeTargetGroups"
+              - "elasticloadbalancing:DescribeTargetHealth"
+              - "elasticloadbalancing:RegisterTargets"
+              - "elasticloadbalancing:DeregisterTargets"
+            Resource: "*"
+      Roles: 
+        - Ref: "RootRole1"
+  RootInstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: "/"
+      Roles: 
+        - Ref: "RootRole1"
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/20
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway  
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway  
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1a
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/22
+      MapPublicIpOnLaunch: true
+  SubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1b
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.4.0/22
+      MapPublicIpOnLaunch: true 
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+  InternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTable
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetA
+  SubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetB
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "Internet Group"
+      GroupDescription: "SSH traffic in, all traffic out."
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0              
+  Instancelinux:
+    Type: AWS::EC2::Instance
+    Properties:
+      AvailabilityZone: ap-south-1a
+      ImageId: ami-011c99152163a87ae
+      InstanceType: t2.micro
+      KeyName: Neha
+      SubnetId: !Ref SubnetA
+      SecurityGroupIds:
+        - !Ref SecurityGroup 
+      UserData: 
+        Fn::Base64: 
+          !Sub |
+            #!/bin/bash 
+            yum -y update
+            yum install -y ruby
+            yum install -y aws-cli
+            cd /home/ec2-user
+            wget https://aws-codedeploy-us-east-2.s3.us-east-2.amazonaws.com/latest/install
+            chmod +x ./install
+            ./install auto
+      IamInstanceProfile: !Ref RootInstanceProfile 
+      Tags: 
+        - Key: Name
+          Value: Practical2.3
+  DeployRole: 
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - 
+            Effect: "Allow"
+            Principal: 
+              Service: 
+                - "codedeploy.amazonaws.com"
+            Action: 
+              - "sts:AssumeRole"
+      Path: "/"
+  RolePolicies: 
+    Type: "AWS::IAM::Policy"
+    Properties: 
+      PolicyName: "Amazonec2codedeploypolicies"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement: 
+          - Effect: "Allow"
+            Action: 
+              - "autoscaling:CompleteLifecycleAction"
+              - "autoscaling:DeleteLifecycleHook"
+              - "autoscaling:DescribeAutoScalingGroups"
+              - "autoscaling:DescribeLifecycleHooks"
+              - "autoscaling:PutLifecycleHook"
+              - "autoscaling:RecordLifecycleActionHeartbeat"
+              - "autoscaling:CreateAutoScalingGroup"
+              - "autoscaling:UpdateAutoScalingGroup"
+              - "autoscaling:EnableMetricsCollection"
+              - "autoscaling:DescribePolicies"
+              - "autoscaling:DescribeScheduledActions"
+              - "autoscaling:DescribeNotificationConfigurations"
+              - "autoscaling:SuspendProcesses"
+              - "autoscaling:ResumeProcesses"
+              - "autoscaling:AttachLoadBalancers"
+              - "autoscaling:AttachLoadBalancerTargetGroups"
+              - "autoscaling:PutScalingPolicy"
+              - "autoscaling:PutScheduledUpdateGroupAction"
+              - "autoscaling:PutNotificationConfiguration"
+              - "autoscaling:PutWarmPool"
+              - "autoscaling:DescribeScalingActivities"
+              - "autoscaling:DeleteAutoScalingGroup"
+              - "ec2:DescribeInstances"
+              - "ec2:DescribeInstanceStatus"
+              - "ec2:TerminateInstances"
+              - "tag:GetResources"
+              - "sns:Publish"
+              - "cloudwatch:DescribeAlarms"
+              - "cloudwatch:PutMetricAlarm"
+              - "elasticloadbalancing:DescribeLoadBalancers"
+              - "elasticloadbalancing:DescribeInstanceHealth"
+              - "elasticloadbalancing:RegisterInstancesWithLoadBalancer"
+              - "elasticloadbalancing:DeregisterInstancesFromLoadBalancer"
+              - "elasticloadbalancing:DescribeTargetGroups"
+              - "elasticloadbalancing:DescribeTargetHealth"
+              - "elasticloadbalancing:RegisterTargets"
+              - "elasticloadbalancing:DeregisterTargets"
+            Resource: "*"
+      Roles: 
+        - Ref: "DeployRole"
+  DeployInstanceProfile: 
+    Type: "AWS::IAM::InstanceProfile"
+    Properties: 
+      Path: "/"
+      Roles: 
+        - Ref: "DeployRole"
+  RepoPractical7:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryName: Practical2.6
+      RepositoryDescription: This is a repository for my project  
+  Application:
+    Type: AWS::CodeDeploy::Application
+    Properties:
+      ComputePlatform: Server        
+  DeploymentGroup:
+    Type: AWS::CodeDeploy::DeploymentGroup
+    Properties:
+      ApplicationName: !Ref Application
+      DeploymentConfigName: CodeDeployDefault.OneAtATime
+      DeploymentGroupName: Practical236
+      Ec2TagFilters:
+        - Key: Name
+          Value: Practical2.3
+          Type: KEY_AND_VALUE
+      ServiceRoleArn: 'arn:aws:iam::984164597888:role/ec2codedeploye'
+  CodePipelineArtifactStoreBucket:
+    Type: 'AWS::S3::Bucket'
+  CodePipelineArtifactStoreBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref CodePipelineArtifactStoreBucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: DenyUnEncryptedObjectUploads
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:PutObject'
+            Resource: !Join 
+              - ''
+              - - !GetAtt 
+                  - CodePipelineArtifactStoreBucket
+                  - Arn
+                - /*
+            Condition:
+              StringNotEquals:
+                's3:x-amz-server-side-encryption': 'aws:kms'
+          - Sid: DenyInsecureConnections
+            Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: !Join 
+              - ''
+              - - !GetAtt 
+                  - CodePipelineArtifactStoreBucket
+                  - Arn
+                - /*
+            Condition:
+              Bool:
+                'aws:SecureTransport': false
+  # AmazonCloudWatchEventRole:
+  #   Type: 'AWS::IAM::Role'
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Version: 2012-10-17
+  #       Statement:
+  #         - Effect: Allow
+  #           Principal:
+  #             Service:
+  #               - events.amazonaws.com
+  #           Action: 'sts:AssumeRole'
+  #     Path: /
+  #     Policies:
+  #       - PolicyName: cwe-pipeline-execution
+  #         PolicyDocument:
+  #           Version: 2012-10-17
+  #           Statement:
+  #             - Effect: Allow
+  #               Action: 'codepipeline:StartPipelineExecution'
+  #               Resource: !Join 
+  #                 - ''
+  #                 - - 'arn:aws:codepipeline:'
+  #                   - !Ref 'AWS::Region'
+  #                   - ':'
+  #                   - !Ref 'AWS::AccountId'
+  #                   - ':'
+  #                   - !Ref AppPipeline
+  # AmazonCloudWatchEventRule:
+  #   Type: 'AWS::Events::Rule'
+  #   Properties:
+  #     EventPattern:
+  #       source:
+  #         - aws.codecommit
+  #       detail-type:
+  #         - CodeCommit Repository State Change
+  #       resources:
+  #         - !Join 
+  #           - ''
+  #           - - 'arn:aws:codecommit:'
+  #             - !Ref 'AWS::Region'
+  #             - ':'
+  #             - !Ref 'AWS::AccountId'
+  #             - ':'
+  #             - !Ref RepoPractical7
+  #       detail:
+  #         event:
+  #           - referenceCreated
+  #           - referenceUpdated
+  #         referenceType:
+  #           - branch
+  #         referenceName:
+  #           - master
+  #     Targets:
+  #       - Arn: !Join 
+  #           - ''
+  #           - - 'arn:aws:codepipeline:'
+  #             - !Ref 'AWS::Region'
+  #             - ':'
+  #             - !Ref 'AWS::AccountId'
+  #             - ':'
+  #             - !Ref AppPipeline
+  #         RoleArn: !GetAtt 
+  #           - AmazonCloudWatchEventRole
+  #           - Arn
+  #         Id: codepipeline-AppPipeline
+  AppPipeline:
+    Type: 'AWS::CodePipeline::Pipeline'
+    Properties:
+      Name: codecommit-events-pipeline
+      RoleArn: !GetAtt 
+        - CodePipelineServiceRole
+        - Arn
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: SourceAction
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Version: 1
+                Provider: CodeCommit
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                BranchName: master
+                RepositoryName: Practical2.6
+                PollForSourceChanges: false
+              RunOrder: 1
+        - Name: CodeDeploy
+          Actions:
+            - Name: DeployAction
+              InputArtifacts:
+                - Name: SourceOutput
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Version: 1
+                Provider: CodeDeploy
+              Configuration:
+                ApplicationName: !Ref Application
+                DeploymentGroupName: Practical236
+              RunOrder: 1
+      ArtifactStore:
+        Type: S3
+        Location: !Ref CodePipelineArtifactStoreBucket
+  CodePipelineServiceRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - codepipeline.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: AWS-CodePipeline-Service-3
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'codecommit:CancelUploadArchive'
+                  - 'codecommit:GetBranch'
+                  - 'codecommit:GetCommit'
+                  - 'codecommit:GetUploadArchiveStatus'
+                  - 'codecommit:UploadArchive'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'codedeploy:CreateDeployment'
+                  - 'codedeploy:GetApplicationRevision'
+                  - 'codedeploy:GetDeployment'
+                  - 'codedeploy:GetDeploymentConfig'
+                  - 'codedeploy:RegisterApplicationRevision'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'codebuild:BatchGetBuilds'
+                  - 'codebuild:StartBuild'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'devicefarm:ListProjects'
+                  - 'devicefarm:ListDevicePools'
+                  - 'devicefarm:GetRun'
+                  - 'devicefarm:GetUpload'
+                  - 'devicefarm:CreateUpload'
+                  - 'devicefarm:ScheduleRun'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'lambda:InvokeFunction'
+                  - 'lambda:ListFunctions'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'iam:PassRole'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'elasticbeanstalk:*'
+                  - 'ec2:*'
+                  - 'elasticloadbalancing:*'
+                  - 'autoscaling:*'
+                  - 'cloudwatch:*'
+                  - 's3:*'
+                  - 'sns:*'
+                  - 'cloudformation:*'
+                  - 'rds:*'
+                  - 'sqs:*'
+                  - 'ecs:*'
+                Resource: '*'   
+  
